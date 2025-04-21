@@ -1,0 +1,102 @@
+<!DOCTYPE html>
+<html lang="zh-Hant">
+  <head>
+    <meta charset="UTF-8" />
+    <title>誰是鴨鴨王 AR 遊戲</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <script src="https://cdn.jsdelivr.net/npm/aframe@1.2.0/dist/aframe.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/mind-ar@1.1.4/dist/mindar-image.prod.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/mind-ar@1.1.4/dist/aframe-mindar-image.prod.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs@latest"></script>
+    <script src="https://cdn.jsdelivr.net/npm/@teachablemachine/image@latest"></script>
+    <style>
+      body { margin: 0; overflow: hidden; font-family: sans-serif; text-align: center; background: #eef7ff; }
+      #teachable-container {
+        position: absolute; top: 10px; left: 10px; z-index: 10;
+        background: rgba(255,255,255,0.8); padding: 10px; border-radius: 8px;
+      }
+      #label-container div { font-size: 16px; }
+      #message {
+        position: absolute; bottom: 20px; left: 50%; transform: translateX(-50%);
+        background: rgba(255, 255, 255, 0.9); padding: 10px 20px; border-radius: 10px;
+        font-size: 24px; color: #333; z-index: 20; display: none;
+      }
+    </style>
+  </head>
+  <body>
+    <div id="teachable-container">
+      <button onclick="init()">啟動辨識</button>
+      <div id="webcam-container"></div>
+      <div id="label-container"></div>
+    </div>
+    <div id="message"></div>
+    <a-scene mindar-image="imageTargetSrc: https://mindar-hosting.vercel.app/targets.mind; autoStart: false;"
+             embedded color-space="sRGB" vr-mode-ui="enabled: false" device-orientation-permission-ui="enabled: true">
+      <a-assets>
+        <img id="duck" src="https://mindar-hosting.vercel.app/duck-marker.png" />
+      </a-assets>
+      <a-camera position="0 0 0" look-controls="enabled: false"></a-camera>
+      <a-entity mindar-image-target="targetIndex: 0" id="target-entity">
+        <a-image id="duck-image" src="#duck" position="0 0 0" scale="1 1 1"></a-image>
+      </a-entity>
+    </a-scene>
+    <script>
+      const URL = "https://teachablemachine.withgoogle.com/models/k90PkgInL/";
+      let model, webcam, labelContainer, maxPredictions;
+      let arVisible = false;
+      async function init() {
+        try {
+          const modelURL = URL + "model.json";
+          const metadataURL = URL + "metadata.json";
+          model = await tmImage.load(modelURL, metadataURL);
+          maxPredictions = model.getTotalClasses();
+          webcam = new tmImage.Webcam(300, 225, true);
+          await webcam.setup();
+          await webcam.play();
+          document.getElementById("webcam-container").appendChild(webcam.canvas);
+          labelContainer = document.getElementById("label-container");
+          for (let i = 0; i < maxPredictions; i++) {
+            labelContainer.appendChild(document.createElement("div"));
+          }
+          const mindarComponent = document.querySelector("a-scene").components["mindar-image"];
+          mindarComponent.video = webcam.webcam;
+          await mindarComponent.start();
+          const targetEntity = document.querySelector('#target-entity');
+          targetEntity.addEventListener("targetFound", () => { arVisible = true; });
+          targetEntity.addEventListener("targetLost", () => { arVisible = false; });
+          window.requestAnimationFrame(loop);
+        } catch (err) {
+          alert("🚨 無法啟動鏡頭，請確認已允許相機，或改用 GitHub Pages 環境執行");
+        }
+      }
+      async function loop() {
+        webcam.update(); await predict(); window.requestAnimationFrame(loop);
+      }
+      async function predict() {
+        const prediction = await model.predict(webcam.canvas);
+        const message = document.getElementById("message");
+        const best = prediction.reduce((a, b) => a.probability > b.probability ? a : b);
+        for (let i = 0; i < maxPredictions; i++) {
+          const className = prediction[i].className;
+          const prob = prediction[i].probability.toFixed(2);
+          labelContainer.childNodes[i].innerHTML = `${className}: ${prob}`;
+        }
+        if (best.probability > 0.85) {
+          message.innerText = best.className === "吐吐" ? "早安" :
+                              best.className === "鴨鴨" ? "午安" :
+                              best.className === "大象" ? "晚安" : "";
+          message.style.display = "block";
+        } else {
+          message.style.display = "none";
+        }
+        if (arVisible) {
+          const duck = document.querySelector('#duck-image');
+          if (best.className === "鴨鴨") duck.setAttribute('scale', '1.5 1.5 1.5');
+          else if (best.className === "吐吐") duck.setAttribute('scale', '0.5 0.5 0.5');
+          else if (best.className === "大象") duck.setAttribute('scale', '1 2 1');
+          else duck.setAttribute('scale', '1 1 1');
+        }
+      }
+    </script>
+  </body>
+</html>
